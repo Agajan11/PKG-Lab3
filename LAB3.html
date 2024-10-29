@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Processing Application</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 1px solid black;
+            margin: 10px;
+        }
+        .controls {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Image Processing Application</h1>
+
+    <input type="file" id="uploadImage" accept="image/*">
+    <br>
+    <canvas id="imageCanvas"></canvas>
+    <canvas id="histogramCanvas"></canvas>
+
+    <div class="controls">
+        <button onclick="restoreImage()">Restore Original Image</button>
+        <button onclick="linearContrast()">Apply Linear Contrast</button>
+        <button onclick="equalizeHistogram()">Equalize Histogram</button>
+        <button onclick="applyMedianFilter()">Apply Median Filter</button>
+    </div>
+
+    <script>
+        const uploadImage = document.getElementById('uploadImage');
+        const imageCanvas = document.getElementById('imageCanvas');
+        const histogramCanvas = document.getElementById('histogramCanvas');
+        const imageContext = imageCanvas.getContext('2d');
+        const histogramContext = histogramCanvas.getContext('2d');
+        
+        let originalImageData = null;
+        let currentImageData = null;
+
+        // Загрузка изображения
+        uploadImage.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.src = e.target.result;
+                img.onload = function() {
+                    imageCanvas.width = img.width;
+                    imageCanvas.height = img.height;
+                    imageContext.drawImage(img, 0, 0);
+                    originalImageData = imageContext.getImageData(0, 0, img.width, img.height);
+                    currentImageData = imageContext.getImageData(0, 0, img.width, img.height);
+                    drawHistogram();
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Восстановление исходного изображения
+        function restoreImage() {
+            if (originalImageData) {
+                imageContext.putImageData(originalImageData, 0, 0);
+                currentImageData = imageContext.getImageData(0, 0, imageCanvas.width, imageCanvas.height);
+                drawHistogram();
+            }
+        }
+
+        // Построение гистограммы
+        function drawHistogram() {
+            const imageData = currentImageData;
+            const histogram = new Array(256).fill(0);
+
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const r = imageData.data[i];
+                histogram[r]++;
+            }
+
+            histogramCanvas.width = 256;
+            histogramCanvas.height = 150;
+            histogramContext.clearRect(0, 0, 256, 150);
+            const max = Math.max(...histogram);
+
+            for (let i = 0; i < 256; i++) {
+                const height = (histogram[i] / max) * histogramCanvas.height;
+                histogramContext.fillStyle = '#000';
+                histogramContext.fillRect(i, histogramCanvas.height - height, 1, height);
+            }
+        }
+
+        // Линейное контрастирование
+        function linearContrast() {
+            const imageData = currentImageData;
+            const min = 50;  // минимальное значение для контрастирования
+            const max = 200; // максимальное значение для контрастирования
+
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                imageData.data[i] = ((imageData.data[i] - min) / (max - min)) * 255;
+                imageData.data[i + 1] = ((imageData.data[i + 1] - min) / (max - min)) * 255;
+                imageData.data[i + 2] = ((imageData.data[i + 2] - min) / (max - min)) * 255;
+            }
+            imageContext.putImageData(imageData, 0, 0);
+            drawHistogram();
+        }
+
+        // Эквализация гистограммы
+        function equalizeHistogram() {
+            const imageData = currentImageData;
+            const histogram = new Array(256).fill(0);
+            const cdf = new Array(256).fill(0);
+            const totalPixels = imageCanvas.width * imageCanvas.height;
+
+            // Рассчитать гистограмму
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                histogram[imageData.data[i]]++;
+            }
+
+            // Построить кумулятивную функцию распределения (CDF)
+            cdf[0] = histogram[0];
+            for (let i = 1; i < 256; i++) {
+                cdf[i] = cdf[i - 1] + histogram[i];
+            }
+
+            // Применить эквализацию
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                const value = imageData.data[i];
+                const newValue = Math.floor((cdf[value] / totalPixels) * 255);
+                imageData.data[i] = newValue;
+                imageData.data[i + 1] = newValue;
+                imageData.data[i + 2] = newValue;
+            }
+
+            imageContext.putImageData(imageData, 0, 0);
+            drawHistogram();
+        }
+
+        // Применение медианного фильтра
+        function applyMedianFilter() {
+            const imageData = currentImageData;
+            const width = imageCanvas.width;
+            const height = imageCanvas.height;
+            const newImageData = imageContext.createImageData(imageData);
+
+            const getMedian = (values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)];
+
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const rValues = [];
+                    const gValues = [];
+                    const bValues = [];
+
+                    for (let j = -1; j <= 1; j++) {
+                        for (let i = -1; i <= 1; i++) {
+                            const pixelIndex = ((y + j) * width + (x + i)) * 4;
+                            rValues.push(imageData.data[pixelIndex]);
+                            gValues.push(imageData.data[pixelIndex + 1]);
+                            bValues.push(imageData.data[pixelIndex + 2]);
+                        }
+                    }
+
+                    const medianR = getMedian(rValues);
+                    const medianG = getMedian(gValues);
+                    const medianB = getMedian(bValues);
+
+                    const pixelIndex = (y * width + x) * 4;
+                    newImageData.data[pixelIndex] = medianR;
+                    newImageData.data[pixelIndex + 1] = medianG;
+                    newImageData.data[pixelIndex + 2] = medianB;
+                    newImageData.data[pixelIndex + 3] = 255;
+                }
+            }
+
+            imageContext.putImageData(newImageData, 0, 0);
+            currentImageData = newImageData; // обновляем текущие данные изображения
+            drawHistogram();
+        }
+    </script>
+</body>
+</html>
